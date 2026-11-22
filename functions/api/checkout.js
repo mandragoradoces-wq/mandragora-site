@@ -71,7 +71,8 @@ export async function onRequestPost({ request, env }) {
   const total = items.reduce((s, i) => s + i.unit_price * i.quantity, 0);
 
   // ---------- cria o pagamento no Mercado Pago ----------
-  const site = (env.SITE_URL || new URL(request.url).origin).replace(/\/$/, '');
+  const site = (env.SITE_URL || 'https://mandragoradoces.com.br').replace(/\/$/, ''); // onde o cliente volta
+  const api = new URL(request.url).origin;                                               // onde o aviso chega
   const pedido = 'MDG-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
 
   const preferencia = {
@@ -79,7 +80,7 @@ export async function onRequestPost({ request, env }) {
     payer: { name: nome },
     external_reference: pedido,
     statement_descriptor: 'MANDRAGORA',
-    notification_url: `${site}/api/webhook`,
+    notification_url: `${api}/api/webhook`,
     back_urls: {
       success: `${site}/?pedido=pago`,
       pending: `${site}/?pedido=pendente`,
@@ -99,7 +100,9 @@ export async function onRequestPost({ request, env }) {
     },
   };
 
-  const r = await fetch('https://api.mercadopago.com/checkout/preferences', {
+  let r;
+  try {
+   r = await fetch('https://api.mercadopago.com/checkout/preferences', {
     method: 'POST',
     headers: {
       authorization: `Bearer ${env.MP_ACCESS_TOKEN}`,
@@ -107,7 +110,11 @@ export async function onRequestPost({ request, env }) {
       'x-idempotency-key': pedido,
     },
     body: JSON.stringify(preferencia),
-  });
+   });
+  } catch (e) {
+    console.log('Mercado Pago fora do ar', String(e));
+    return erro('Não conseguimos falar com o Mercado Pago agora. Tente de novo em instantes.', 502);
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.init_point) {
     console.log('Erro Mercado Pago', r.status, JSON.stringify(j));
