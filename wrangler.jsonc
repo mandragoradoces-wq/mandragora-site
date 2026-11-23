@@ -4,9 +4,7 @@
   "main": "src/index.js",
   "compatibility_date": "2026-11-01",
   // mantém as variáveis que vocês cadastrarem pelo painel
-  "keep_vars": true
-  // OPCIONAL (evita e-mail repetido): crie o KV "mandragora-pedidos" no Cloudflare,
-  // coloque uma vírgula no fim da linha "keep_vars" acima, tire as duas barras
-  // da linha abaixo e cole o ID do KV no lugar indicado:
-  // "kv_namespaces": [{ "binding": "PEDIDOS", "id": "COLE_AQUI_O_ID_DO_KV" }]
+  "keep_vars": true,
+  // arquivo de pedidos (KV "mandragora-pedidos")
+  "kv_namespaces": [{ "binding": "PEDIDOS", "id": "1867ec02353045e0aa55ce4ceaa35ff8" }]
 }

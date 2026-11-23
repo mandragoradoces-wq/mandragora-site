@@ -4,7 +4,7 @@ import { PRODUTOS, CAIXA, REGIOES, LOJA, hoje } from '../../lib/loja.js';
 export const onRequestGet = ({ env }) =>
   Response.json(
     {
-      pagamentos: Boolean(env.MP_ACCESS_TOKEN),
+      pagamentos: Boolean(env.MP_ACCESS_TOKEN && env.PEDIDOS),
       produtos: PRODUTOS,
       caixa: CAIXA,
       regioes: REGIOES,

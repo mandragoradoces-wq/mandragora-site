@@ -1,5 +1,5 @@
 // POST /api/checkout  ·  recebe a sacola, recalcula tudo com os preços oficiais
-// e cria o pagamento no Mercado Pago (Checkout Pro). Devolve o link de pagamento.
+// e cria o pagamento no Mercado Pago (Checkout Pro via API de Orders). Devolve o link de pagamento.
 import { PRODUTOS, CAIXA, REGIOES, LOJA, hoje } from '../../lib/loja.js';
 
 const erro = (msg, status = 400) => Response.json({ error: msg }, { status });
@@ -10,7 +10,7 @@ const inteiro = (v, min, max) => {
 };
 
 export async function onRequestPost({ request, env }) {
-  if (!env.MP_ACCESS_TOKEN) return erro('Pagamento online ainda não configurado.', 503);
+  if (!env.MP_ACCESS_TOKEN || !env.PEDIDOS) return erro('Pagamento online ainda não configurado.', 503);
 
   let b;
   try { b = await request.json(); } catch { return erro('Pedido inválido.'); }
@@ -70,55 +70,64 @@ export async function onRequestPost({ request, env }) {
   }
   const total = items.reduce((s, i) => s + i.unit_price * i.quantity, 0);
 
-  // ---------- cria o pagamento no Mercado Pago ----------
+  // ---------- cria o pagamento no Mercado Pago (API de Orders · Checkout Pro) ----------
   const site = (env.SITE_URL || 'https://mandragoradoces.com.br').replace(/\/$/, ''); // onde o cliente volta
-  const api = new URL(request.url).origin;                                               // onde o aviso chega
   const pedido = 'MDG-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).slice(2, 5).toUpperCase();
+  const valor = n => Number(n).toFixed(2);
 
-  const preferencia = {
-    items,
-    payer: { name: nome },
+  // A API de Orders não guarda dados extras, então o pedido completo fica no KV
+  await env.PEDIDOS.put(`pedido:${pedido}`, JSON.stringify({
+    pedido, nome, whatsapp, recebimento,
+    regiao: regiao ? regiao.nome : '', endereco, data, obs,
+    resumo: linhas.join('\n'), total, criado: new Date().toISOString(),
+  }), { expirationTtl: 60 * 60 * 24 * 60 });
+
+  const order = {
+    type: 'online',
+    processing_mode: 'manual',
+    total_amount: valor(total),
     external_reference: pedido,
-    statement_descriptor: 'MANDRAGORA',
-    notification_url: `${api}/api/webhook`,
-    back_urls: {
-      success: `${site}/?pedido=pago`,
-      pending: `${site}/?pedido=pendente`,
-      failure: `${site}/?pedido=falhou`,
-    },
-    auto_return: 'approved',
-    payment_methods: {
-      excluded_payment_types: [{ id: 'ticket' }], // sem boleto: doce não espera 3 dias
-      installments: LOJA.parcelasMax,
-    },
-    metadata: {
-      pedido, nome, whatsapp, recebimento,
-      regiao: regiao ? regiao.nome : '',
-      endereco, data, obs,
-      resumo: linhas.join('\n'),
-      total,
+    description: `Pedido ${pedido} · Mandrágora Doces`,
+    items: items.map(i => ({
+      external_code: i.id, title: i.title.slice(0, 120),
+      ...(i.description ? { description: i.description.slice(0, 240) } : {}),
+      quantity: i.quantity, unit_price: valor(i.unit_price),
+    })),
+    config: {
+      statement_descriptor: 'MANDRAGORA',
+      online: {
+        success_url: `${site}/?pedido=pago`,
+        pending_url: `${site}/?pedido=pendente`,
+        failure_url: `${site}/?pedido=falhou`,
+        auto_return: 'approved',
+      },
+      payment_method: {
+        not_allowed_types: ['ticket'], // sem boleto: doce não espera 3 dias
+        max_installments: LOJA.parcelasMax,
+      },
     },
   };
 
   let r;
   try {
-   r = await fetch('https://api.mercadopago.com/checkout/preferences', {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${env.MP_ACCESS_TOKEN}`,
-      'content-type': 'application/json',
-      'x-idempotency-key': pedido,
-    },
-    body: JSON.stringify(preferencia),
-   });
+    r = await fetch('https://api.mercadopago.com/v1/orders', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${env.MP_ACCESS_TOKEN}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+        'x-idempotency-key': pedido,
+      },
+      body: JSON.stringify(order),
+    });
   } catch (e) {
     console.log('Mercado Pago fora do ar', String(e));
     return erro('Não conseguimos falar com o Mercado Pago agora. Tente de novo em instantes.', 502);
   }
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.init_point) {
+  if (!r.ok || !j.checkout_url) {
     console.log('Erro Mercado Pago', r.status, JSON.stringify(j));
     return erro('Não conseguimos abrir o pagamento agora. Tente de novo em instantes.', 502);
   }
-  return Response.json({ url: j.init_point, pedido, total });
+  return Response.json({ url: j.checkout_url, pedido, total });
 }
