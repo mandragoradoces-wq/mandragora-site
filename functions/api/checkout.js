@@ -1,6 +1,6 @@
 // POST /api/checkout  ·  recebe a sacola, recalcula tudo com os preços oficiais
 // e cria o pagamento no Mercado Pago (Checkout Pro via API de Orders). Devolve o link de pagamento.
-import { PRODUTOS, CAIXA, REGIOES, LOJA, hoje } from '../../lib/loja.js';
+import { PRODUTOS, COMBO, ENTREGA, LOJA, hoje, dataValida, precoCombo, freteDe } from '../../lib/loja.js';
 
 const erro = (msg, status = 400) => Response.json({ error: msg }, { status });
 const texto = (v, max) => String(v ?? '').trim().slice(0, max);
@@ -8,6 +8,7 @@ const inteiro = (v, min, max) => {
   const n = Number(v);
   return Number.isInteger(n) && n >= min && n <= max ? n : null;
 };
+const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export async function onRequestPost({ request, env }) {
   if (!env.MP_ACCESS_TOKEN || !env.PEDIDOS) return erro('Pagamento online ainda não configurado.', 503);
@@ -23,18 +24,21 @@ export async function onRequestPost({ request, env }) {
   if (!nome) return erro('Falta o seu nome.');
   if (whatsapp.length < 10 || whatsapp.length > 13) return erro('Confira o número de WhatsApp.');
 
-  let regiao = null, endereco = '';
+  let endereco = '';
   if (recebimento === 'entrega') {
-    regiao = REGIOES.find(r => r.id === b.regiao);
-    endereco = texto(b.endereco, 200);
-    if (!regiao) return erro('Escolha a região de entrega.');
-    if (endereco.length < 6) return erro('Falta o endereço de entrega.');
+    const e = b.endereco && typeof b.endereco === 'object' ? b.endereco : {};
+    const rua = texto(e.rua, 120), numero = texto(e.numero, 20), bairro = texto(e.bairro, 80);
+    const complemento = texto(e.complemento, 80), referencia = texto(e.referencia, 120);
+    if (!rua || !numero || !bairro) return erro('Falta completar o endereço de entrega (rua, número e bairro).');
+    endereco = `${rua}, ${numero}${complemento ? ` (${complemento})` : ''} · ${bairro} · ${ENTREGA.cidade}/${ENTREGA.uf}` +
+      (referencia ? ` · Referência: ${referencia}` : '');
   }
 
   const data = texto(b.data, 10);
   const hj = hoje();
   const limite = new Date(Date.parse(hj) + LOJA.diasMaxAgendamento * 864e5).toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || data < hj || data > limite) return erro('Escolha uma data válida.');
+  if (!dataValida(data)) return erro('Não temos entrega nesse dia ou horário. Escolha outra data.');
 
   // ---------- itens (preços sempre daqui do servidor) ----------
   const items = [];
@@ -43,32 +47,34 @@ export async function onRequestPost({ request, env }) {
     const p = PRODUTOS[it.id];
     const qtd = inteiro(it.qtd, 1, 50);
     if (!p || !qtd) return erro('Algum item da sacola não existe mais. Atualize a página.');
-    items.push({ id: it.id, title: p.nome, quantity: qtd, unit_price: p.preco, currency_id: 'BRL' });
-    linhas.push(`${qtd}x ${p.nome}`);
+    items.push({ id: it.id, title: `${p.nome} · ${p.tipo}`, quantity: qtd, unit_price: p.preco });
+    linhas.push(`${qtd}x ${p.nome} (${p.tipo})`);
   }
-  for (const cx of Array.isArray(b.caixas) ? b.caixas.slice(0, 10) : []) {
+  const combos = Array.isArray(b.combos) ? b.combos : Array.isArray(b.caixas) ? b.caixas : [];
+  for (const cx of combos.slice(0, 10)) {
     const n = inteiro(cx.n, 1, 99);
-    const preco = CAIXA.tamanhos[n];
     const sabores = Array.isArray(cx.sabores) ? cx.sabores : [];
     const qtd = inteiro(cx.qtd ?? 1, 1, 20);
-    if (!preco || !qtd || sabores.length !== n || !sabores.every(s => CAIXA.sabores.includes(s)))
-      return erro('A Caixa Monstrinha está incompleta. Monte de novo, por favor.');
+    if (!COMBO.tamanhos.includes(n) || !qtd || sabores.length !== n || !sabores.every(s => COMBO.sabores.includes(s)))
+      return erro('O Combo Monstrinho está incompleto. Monte de novo, por favor.');
     const conta = {};
     sabores.forEach(s => (conta[s] = (conta[s] || 0) + 1));
     const desc = Object.entries(conta).map(([s, q]) => `${q} ${PRODUTOS[s].nome}`).join(', ');
     const recado = texto(cx.recado, 80);
-    items.push({
-      id: `caixa-${n}`, title: `Caixa Monstrinha (${n})`, description: desc.slice(0, 250),
-      quantity: qtd, unit_price: preco, currency_id: 'BRL',
-    });
-    linhas.push(`${qtd}x Caixa Monstrinha (${n}): ${desc}${recado ? ` · recado: "${recado}"` : ''}`);
+    items.push({ id: `combo-${n}`, title: `Combo Monstrinho (${n} fatias)`, description: desc, quantity: qtd, unit_price: precoCombo(sabores) });
+    linhas.push(`${qtd}x Combo Monstrinho (${n} fatias): ${desc}${recado ? ` · recado: "${recado}"` : ''}`);
   }
   if (!items.length) return erro('Sua sacola está vazia.');
-  if (regiao) {
-    items.push({ id: `entrega-${regiao.id}`, title: `Entrega · ${regiao.nome}`, quantity: 1, unit_price: regiao.taxa, currency_id: 'BRL' });
-    linhas.push(`Entrega: ${regiao.nome}`);
+
+  const subtotal = items.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+  let frete = '';
+  if (recebimento === 'entrega') {
+    const taxa = freteDe(subtotal);
+    if (taxa > 0) items.push({ id: 'entrega', title: `Entrega em ${ENTREGA.cidade}`, quantity: 1, unit_price: taxa });
+    frete = taxa > 0 ? brl(taxa) : 'Grátis';
+    linhas.push(`Entrega em ${ENTREGA.cidade}: ${frete}`);
   }
-  const total = items.reduce((s, i) => s + i.unit_price * i.quantity, 0);
+  const total = Math.round(items.reduce((s, i) => s + i.unit_price * i.quantity, 0) * 100) / 100;
 
   // ---------- cria o pagamento no Mercado Pago (API de Orders · Checkout Pro) ----------
   const site = (env.SITE_URL || 'https://mandragoradoces.com.br').replace(/\/$/, ''); // onde o cliente volta
@@ -77,8 +83,7 @@ export async function onRequestPost({ request, env }) {
 
   // A API de Orders não guarda dados extras, então o pedido completo fica no KV
   await env.PEDIDOS.put(`pedido:${pedido}`, JSON.stringify({
-    pedido, nome, whatsapp, recebimento,
-    regiao: regiao ? regiao.nome : '', endereco, data, obs,
+    pedido, nome, whatsapp, recebimento, frete, endereco, data, obs,
     resumo: linhas.join('\n'), total, criado: new Date().toISOString(),
   }), { expirationTtl: 60 * 60 * 24 * 60 });
 
