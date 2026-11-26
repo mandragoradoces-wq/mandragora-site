@@ -400,7 +400,8 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
    <button class="btn keep" type="button" id="keep">Continuar escolhendo</button>
    <form id="orderForm" novalidate>
     <label>Seu nome<input id="fName" autocomplete="name" placeholder="Como podemos te chamar?"></label>
-    <label>Seu WhatsApp<input id="fPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 91234-5678"></label>
+    <label>Seu WhatsApp<input id="fPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="(47) 91234-5678"></label>
+    <label>Seu e-mail <small>(para o comprovante)</small><input id="fEmail" type="email" inputmode="email" autocomplete="email" placeholder="voce@email.com"></label>
     <div class="seg" role="radiogroup" aria-label="Forma de receber">
      <label><input type="radio" name="mode" value="Entrega" checked><span>Entrega</span></label>
      <label><input type="radio" name="mode" value="Retirada"><span>Retirada</span></label>
@@ -449,6 +450,8 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
   <div class="ract"><button class="btn pink" id="resOk" type="button"></button><a class="btn outline" id="resWa" href="#" target="_blank" rel="noopener">Falar no WhatsApp</a></div></div>
 </div>
 
+<input type="hidden" id="deviceId">
+<script src="https://www.mercadopago.com/v2/security.js" view="checkout" async></script>
 <script>
 {
 const API = 'https://mandragora-site.mandragoradoces.workers.dev/api/'; // endereço do Worker de pagamento
@@ -593,7 +596,7 @@ function message(){
  let m = `Olá, Mandrágora! Quero fazer um pedido:\n\n${lines.join('\n')}\n\nSubtotal: ${brl(sum())}`;
  if (mode()==='Entrega') m += `\nEntrega em ${ENT.cidade}: ${fee() ? brl(fee()) : 'grátis'}`;
  m += `\nTotal: ${brl(sum()+fee())}`;
- m += `\n\nNome: ${$('fName').value.trim()}\nWhatsApp: ${$('fPhone').value.trim()}\nRecebimento: ${mode()}`;
+ m += `\n\nNome: ${$('fName').value.trim()}\nWhatsApp: ${$('fPhone').value.trim()}${$('fEmail').value.trim() ? `\nE-mail: ${$('fEmail').value.trim()}` : ''}\nRecebimento: ${mode()}`;
  if (mode()==='Entrega') m += `\nEndereço: ${addrTxt()}`; else if (RETIRADA) m += `\nRetirada em: ${RETIRADA}`;
  m += `\nData: ${$('dateTxt').textContent}`;
  if (!PAY) m += `\nPagamento: ${$('fPay').value}`;
@@ -605,6 +608,7 @@ function problem(){
  if (!$('fName').value.trim()) return 'Falta o seu nome.';
  const ph = $('fPhone').value.replace(/\D/g,'');
  if (ph.length < 10 || ph.length > 13) return 'Falta o seu WhatsApp com DDD.';
+ if (PAY && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test($('fEmail').value.trim())) return 'Confira o seu e-mail.';
  if (mode()==='Entrega') { const a = addr();
   if (!a.rua) return 'Falta a rua do endereço.';
   if (!a.numero) return 'Falta o número do endereço.';
@@ -612,7 +616,7 @@ function problem(){
  if (!okDate($('fDate').value)) return 'Escolha outra data de entrega.';
  return '';
 }
-const focusFor = bad => { const f = {nome:'fName',WhatsApp:'fPhone',rua:'fRua',número:'fNum',bairro:'fBairro',data:'dateBtn'}; for (const k in f) if (bad.includes(k)) return $(f[k]).focus(); };
+const focusFor = bad => { const f = {nome:'fName',WhatsApp:'fPhone','e-mail':'fEmail',rua:'fRua',número:'fNum',bairro:'fBairro',data:'dateBtn'}; for (const k in f) if (bad.includes(k)) return $(f[k]).focus(); };
 function render(){
  const keys = Object.keys(cart);
  const total = Object.values(cart).reduce((a,l)=>a+l.qty,0);
@@ -651,7 +655,8 @@ async function pay(){
  const btn = $('send'); btn.classList.add('loading'); btn.textContent = 'Abrindo pagamento';
  const lines = Object.values(cart);
  const body = {
-  nome: $('fName').value.trim(), whatsapp: $('fPhone').value, recebimento: mode()==='Entrega' ? 'entrega' : 'retirada',
+  nome: $('fName').value.trim(), whatsapp: $('fPhone').value, email: $('fEmail').value.trim(),
+  deviceId: ($('deviceId').value || window.MP_DEVICE_SESSION_ID || ''), recebimento: mode()==='Entrega' ? 'entrega' : 'retirada',
   endereco: addr(), data: $('fDate').value || TODAY, obs: $('fNote').value.trim(),
   itens: lines.filter(l => l.pid).map(l => ({id:l.pid, qtd:l.qty})),
   combos: lines.filter(l => l.combo).map(l => ({n:l.combo.n, sabores:l.combo.sabores, recado:l.combo.recado, qtd:l.qty}))
@@ -751,7 +756,7 @@ fetch(API + 'config', {cache:'no-store'}).then(r => r.ok ? r.json() : null).then
  const st = new URLSearchParams(location.search).get('pedido');
  const T = {pago:['Pedido confirmado!','Recebemos seu pagamento. Já vamos separar seus doces e te chamamos no WhatsApp para combinar os detalhes.','Oba, voltar ao site'],
   pendente:['Quase lá!','Seu pagamento está sendo processado. Assim que o Mercado Pago confirmar, seu pedido entra na fila e te chamamos no WhatsApp.','Entendi'],
-  falhou:['O pagamento não foi concluído','Nenhum valor foi cobrado. Sua sacola continua salva, é só tentar de novo.','Tentar de novo']}[st];
+  falhou:['O pagamento não foi concluído','Nenhum valor foi cobrado e sua sacola continua salva. Isso costuma acontecer quando o banco ou o sistema antifraude barra a compra. Tente de novo com Pix, com outro cartão, ou conferindo os dados digitados. Se preferir, chame a gente no WhatsApp.','Tentar de novo']}[st];
  if (T) {
   let last = ''; try { last = localStorage.getItem('mdg-last') || ''; } catch(e) {}
   if (st !== 'falhou') { cart = {}; save(); }
