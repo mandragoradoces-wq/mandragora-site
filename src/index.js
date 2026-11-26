@@ -1,10 +1,12 @@
 // API da Mandrágora (Cloudflare Worker). O site fica no GitHub Pages e chama estas rotas:
 //   GET  /api/config    preços, regiões e se o pagamento está ligado
 //   POST /api/checkout  cria o pagamento no Mercado Pago
+//   /painel            painel de pedidos (protegido por senha)
 //   POST /api/webhook   aviso do Mercado Pago (pagamento aprovado → e-mail)
 import { onRequestGet as config } from '../functions/api/config.js';
 import { onRequestPost as checkout } from '../functions/api/checkout.js';
 import { onRequestPost as webhook } from '../functions/api/webhook.js';
+import { rotaPainel } from '../lib/painel.js';
 
 // Sites que podem usar esta API (o SITE_URL entra automaticamente, com e sem www)
 function origensPermitidas(env) {
@@ -34,6 +36,8 @@ export default {
     const origemPedido = request.headers.get('Origin');
     const origem = origemPedido && origensPermitidas(env).has(origemPedido) ? origemPedido : null;
     const c = { request, env, ctx };
+
+    if (pathname === '/painel' || pathname.startsWith('/painel/')) return rotaPainel(request, env);
 
     if (request.method === 'OPTIONS') {
       return new Response(null, {

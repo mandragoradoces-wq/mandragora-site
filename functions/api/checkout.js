@@ -86,10 +86,12 @@ export async function onRequestPost({ request, env }) {
   const valor = n => Number(n).toFixed(2);
 
   // A API de Orders não guarda dados extras, então o pedido completo fica no KV
-  await env.PEDIDOS.put(`pedido:${pedido}`, JSON.stringify({
+  const registro = {
     pedido, nome, email, whatsapp, recebimento, frete, endereco, data, obs,
-    resumo: linhas.join('\n'), total, criado: new Date().toISOString(),
-  }), { expirationTtl: 60 * 60 * 24 * 60 });
+    resumo: linhas.join('\n'), total, criado: new Date().toISOString(), status: 'aguardando',
+  };
+  const guardar = () => env.PEDIDOS.put(`pedido:${pedido}`, JSON.stringify(registro), { expirationTtl: 60 * 60 * 24 * 90 });
+  await guardar();
 
   // Dados do comprador: o antifraude do Mercado Pago aprova mais quando recebe tudo isso
   const [primeiro, ...resto] = nome.split(/\s+/);
@@ -160,5 +162,7 @@ export async function onRequestPost({ request, env }) {
     console.log('Erro Mercado Pago', r.status, JSON.stringify(j));
     return erro('Não conseguimos abrir o pagamento agora. Tente de novo em instantes.', 502);
   }
+  registro.mpOrderId = j.id; // permite ao painel confirmar o pagamento direto no Mercado Pago
+  await guardar();
   return Response.json({ url: j.checkout_url, pedido, total });
 }

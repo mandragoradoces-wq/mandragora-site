@@ -5,6 +5,8 @@
   "compatibility_date": "2026-11-01",
   // mantém as variáveis que vocês cadastrarem pelo painel
   "keep_vars": true,
+  // registros (logs) visíveis em Observability no Cloudflare, para diagnosticar problemas
+  "observability": { "enabled": true },
   // arquivo de pedidos (KV "mandragora-pedidos")
   "kv_namespaces": [{ "binding": "PEDIDOS", "id": "1867ec02353045e0aa55ce4ceaa35ff8" }]
 }
