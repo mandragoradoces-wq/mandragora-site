@@ -408,6 +408,8 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
     </div>
     <div id="addrWrap" class="grp">
      <span class="lbl">Endereço de entrega <small>· Itapema/SC</small></span>
+     <label>CEP<input id="fCep" inputmode="numeric" autocomplete="postal-code" placeholder="88220-000" maxlength="9"></label>
+     <p class="hint" id="cepHint"></p>
      <label>Rua<input id="fRua" autocomplete="address-line1" placeholder="Nome da rua ou avenida"></label>
      <div class="two n2">
       <label>Número<input id="fNum" inputmode="numeric" placeholder="123"></label>
@@ -577,8 +579,8 @@ const dow = d => new Date(d+'T12:00:00Z').getUTCDay();
 const okDate = d => { const h = HOR[dow(d)]; return !!h && (d !== TODAY || nowH() < h[1]); };
 const nextOk = d => { for (let i = 0; i < 14 && !okDate(d); i++) d = addDays(d,1); return d; };
 const fee = () => mode()==='Entrega' && sum() > 0 && sum() < ENT.gratisAcima ? ENT.taxa : 0;
-const addr = () => ({rua:$('fRua').value.trim(), numero:$('fNum').value.trim(), bairro:$('fBairro').value.trim(), complemento:$('fComp').value.trim(), referencia:$('fRef').value.trim()});
-const addrTxt = () => { const a = addr(); return `${a.rua}, ${a.numero}${a.complemento?` (${a.complemento})`:''} · ${a.bairro} · ${ENT.cidade}/${ENT.uf}${a.referencia?` · Referência: ${a.referencia}`:''}`; };
+const addr = () => ({cep:$('fCep').value.replace(/\D/g,''), rua:$('fRua').value.trim(), numero:$('fNum').value.trim(), bairro:$('fBairro').value.trim(), complemento:$('fComp').value.trim(), referencia:$('fRef').value.trim()});
+const addrTxt = () => { const a = addr(); return `${a.rua}, ${a.numero}${a.complemento?` (${a.complemento})`:''} · ${a.bairro} · ${ENT.cidade}/${ENT.uf} · CEP ${a.cep.replace(/(\d{5})(\d{3})/,'$1-$2')}${a.referencia?` · Referência: ${a.referencia}`:''}`; };
 const setDate = d => {
  if (!d || d < TODAY) d = TODAY;
  const asked = d; d = nextOk(d);
@@ -602,6 +604,28 @@ function message(){
  if ($('fNote').value.trim()) m += `\nObservações: ${$('fNote').value.trim()}`;
  return m;
 }
+// CEP: máscara + busca do endereço (ViaCEP) + confere se é na cidade de entrega
+let cepFora = false, cepUlt = '';
+const semAcento = t => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+$('fCep').addEventListener('input', async () => {
+ const el = $('fCep'), d = el.value.replace(/\D/g,'').slice(0,8);
+ el.value = d.length > 5 ? d.slice(0,5)+'-'+d.slice(5) : d;
+ if (d.length < 8) { cepFora = false; cepUlt = ''; $('cepHint').textContent = ''; return; }
+ if (d === cepUlt) return; cepUlt = d;
+ $('cepHint').textContent = 'Buscando endereço…';
+ try {
+  const j = await (await fetch(`https://viacep.com.br/ws/${d}/json/`)).json();
+  if (d !== cepUlt) return;
+  if (j.erro) { cepFora = false; $('cepHint').textContent = 'Não achamos esse CEP. Confira o número.'; return; }
+  cepFora = semAcento(j.localidade) !== semAcento(ENT.cidade);
+  if (cepFora) { $('cepHint').textContent = `Esse CEP é de ${j.localidade}/${j.uf}. Por enquanto entregamos só em ${ENT.cidade}/${ENT.uf}.`; summary(); return; }
+  if (j.logradouro && !$('fRua').value.trim()) $('fRua').value = j.logradouro;
+  if (j.bairro && !$('fBairro').value.trim()) $('fBairro').value = j.bairro;
+  $('cepHint').textContent = `${ENT.cidade}/${ENT.uf} ✓`;
+  (j.logradouro ? $('fNum') : $('fRua')).focus();
+ } catch { $('cepHint').textContent = ''; }
+ summary();
+});
 function problem(){
  if (!Object.keys(cart).length) return 'Adicione pelo menos um doce.';
  if (!$('fName').value.trim()) return 'Falta o seu nome.';
@@ -609,13 +633,15 @@ function problem(){
  if (ph.length < 10 || ph.length > 13) return 'Falta o seu WhatsApp com DDD.';
  if (PAY && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test($('fEmail').value.trim())) return 'Confira o seu e-mail.';
  if (mode()==='Entrega') { const a = addr();
+  if (a.cep.length !== 8) return 'Falta o CEP do endereço.';
+  if (cepFora) return `Por enquanto entregamos só em ${ENT.cidade}/${ENT.uf}.`;
   if (!a.rua) return 'Falta a rua do endereço.';
   if (!a.numero) return 'Falta o número do endereço.';
   if (!a.bairro) return 'Falta o bairro do endereço.'; }
  if (!okDate($('fDate').value)) return 'Escolha outra data de entrega.';
  return '';
 }
-const focusFor = bad => { const f = {nome:'fName',WhatsApp:'fPhone','e-mail':'fEmail',rua:'fRua',número:'fNum',bairro:'fBairro',data:'dateBtn'}; for (const k in f) if (bad.includes(k)) return $(f[k]).focus(); };
+const focusFor = bad => { const f = {nome:'fName',WhatsApp:'fPhone','e-mail':'fEmail',CEP:'fCep',entregamos:'fCep',rua:'fRua',número:'fNum',bairro:'fBairro',data:'dateBtn'}; for (const k in f) if (bad.includes(k)) return $(f[k]).focus(); };
 function render(){
  const keys = Object.keys(cart);
  const total = Object.values(cart).reduce((a,l)=>a+l.qty,0);
