@@ -1,12 +1,16 @@
 // API da Mandrágora (Cloudflare Worker). O site fica no GitHub Pages e chama estas rotas:
 //   GET  /api/config    preços, regiões e se o pagamento está ligado
 //   POST /api/checkout  cria o pagamento no Mercado Pago
+//   POST /api/confirmar           confirma pagamento InfinitePay na volta do cliente
+//   POST /api/webhook-infinitepay aviso da InfinitePay
 //   /painel            painel de pedidos (protegido por senha)
 //   POST /api/webhook   aviso do Mercado Pago (pagamento aprovado → e-mail)
 import { onRequestGet as config } from '../functions/api/config.js';
 import { onRequestPost as checkout } from '../functions/api/checkout.js';
 import { onRequestPost as webhook } from '../functions/api/webhook.js';
 import { rotaPainel } from '../lib/painel.js';
+import { onRequestPost as confirmar } from '../functions/api/confirmar.js';
+import { onRequestPost as webhookIP } from '../functions/api/webhook-infinitepay.js';
 
 // Sites que podem usar esta API (o SITE_URL entra automaticamente, com e sem www)
 function origensPermitidas(env) {
@@ -56,6 +60,11 @@ export default {
       if (origemPedido && !origem) return new Response('Origem não permitida', { status: 403 });
       return comCors(await checkout(c), origem);
     }
+    if (pathname === '/api/confirmar' && request.method === 'POST') {
+      if (origemPedido && !origem) return new Response('Origem não permitida', { status: 403 });
+      return comCors(await confirmar(c), origem);
+    }
+    if (pathname === '/api/webhook-infinitepay' && request.method === 'POST') return webhookIP(c);
     if (pathname === '/api/webhook' && request.method === 'POST') return webhook(c);
     return new Response('API da Mandrágora Doces', { status: pathname === '/' ? 200 : 404 });
   },

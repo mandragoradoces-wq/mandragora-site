@@ -1,6 +1,7 @@
 // POST /api/checkout  ·  recebe a sacola, recalcula tudo com os preços oficiais
 // e cria o pagamento no Mercado Pago (Checkout Pro via API de Orders). Devolve o link de pagamento.
 import { PRODUTOS, COMBO, ENTREGA, LOJA, hoje, dataValida, precoCombo, freteDe } from '../../lib/loja.js';
+import { criarLinkInfinitePay } from '../../lib/infinitepay.js';
 
 const erro = (msg, status = 400) => Response.json({ error: msg }, { status });
 const texto = (v, max) => String(v ?? '').trim().slice(0, max);
@@ -11,7 +12,7 @@ const inteiro = (v, min, max) => {
 const brl = n => Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export async function onRequestPost({ request, env }) {
-  if (!env.MP_ACCESS_TOKEN || !env.PEDIDOS) return erro('Pagamento online ainda não configurado.', 503);
+  if (!(env.INFINITEPAY_HANDLE || env.MP_ACCESS_TOKEN) || !env.PEDIDOS) return erro('Pagamento online ainda não configurado.', 503);
 
   let b;
   try { b = await request.json(); } catch { return erro('Pedido inválido.'); }
@@ -92,6 +93,10 @@ export async function onRequestPost({ request, env }) {
   };
   const guardar = () => env.PEDIDOS.put(`pedido:${pedido}`, JSON.stringify(registro), { expirationTtl: 60 * 60 * 24 * 90 });
   await guardar();
+
+  // InfinitePay ligada? Usa ela no lugar do Mercado Pago
+  if (env.INFINITEPAY_HANDLE)
+    return criarLinkInfinitePay({ env, site, api: new URL(request.url).origin, pedido, registro, guardar, items, end, nome, email, whatsapp });
 
   // Dados do comprador: o antifraude do Mercado Pago aprova mais quando recebe tudo isso
   const [primeiro, ...resto] = nome.split(/\s+/);

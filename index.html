@@ -358,7 +358,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
    <div class="steps">
     <div class="step"><i>1</i><div><h3>Escolha os doces</h3><p>Adicione à sacola ou monte um Combo Monstrinho.</p></div></div>
     <div class="step"><i>2</i><div><h3>Diga como e quando</h3><p>Entrega ou retirada, data e forma de pagamento.</p></div></div>
-    <div class="step"><i>3</i><div><h3>Pague e pronto</h3><p>Pix ou cartão pelo Mercado Pago. Seu pedido chega pra gente na hora, já pago.</p></div></div>
+    <div class="step"><i>3</i><div><h3>Pague e pronto</h3><p>Pix ou cartão em ambiente seguro. Seu pedido chega pra gente na hora, já pago.</p></div></div>
    </div>
   </div>
   <div>
@@ -367,7 +367,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
    <details><summary>Vocês entregam?</summary><p>Entregamos em toda Itapema por R$ 12, e o frete é grátis em pedidos acima de R$ 100. Se preferir, retire com a gente sem custo.</p></details>
    <details><summary>Como conservar os doces?</summary><p>Brownies de pote e o pavê vão direto para a geladeira. Fatias de brownie e brigadeiros ficam bem em local fresco, sempre bem fechados.</p></details>
    <details><summary>Fazem encomenda para festas?</summary><p>Fazemos quantidades maiores para festas e eventos. Coloque os detalhes nas observações do pedido ou chame a gente direto no WhatsApp.</p></details>
-   <details><summary>Quais formas de pagamento?</summary><p>Pix ou cartão de crédito, pagos direto no site com a segurança do Mercado Pago. O pedido chega pra gente na hora, já confirmado.</p></details>
+   <details><summary>Quais formas de pagamento?</summary><p>Pix ou cartão de crédito, pagos direto no site em ambiente seguro. O pedido chega pra gente na hora, já confirmado.</p></details>
   </div>
  </div>
 </section>
@@ -440,7 +440,7 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
    <a class="btn pink send arrow" id="send" href="#" target="_blank" rel="noopener">Enviar pedido no WhatsApp</a>
    <button class="btn outline" id="copy" type="button">Copiar pedido</button>
    <a class="walt" id="waAlt" href="#" target="_blank" rel="noopener" hidden>Prefiro combinar pelo WhatsApp</a>
-   <p class="secure" id="secure" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Pagamento seguro pelo Mercado Pago · Pix ou cartão</p>
+   <p class="secure" id="secure" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span id="secureTxt">Pagamento seguro · Pix ou cartão</span></p>
   </div>
  </aside>
 </div>
@@ -451,7 +451,6 @@ select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='ht
 </div>
 
 <input type="hidden" id="deviceId">
-<script src="https://www.mercadopago.com/v2/security.js" view="checkout" async></script>
 <script>
 {
 const API = 'https://mandragora-site.mandragoradoces.workers.dev/api/'; // endereço do Worker de pagamento
@@ -744,7 +743,9 @@ setPayUI(); setDate(TODAY);
 document.querySelectorAll('input[name=mode]').forEach(r => r.addEventListener('change', () => setDate($('fDate').value)));
 fetch(API + 'config', {cache:'no-store'}).then(r => r.ok ? r.json() : null).then(c => {
  if (!c || !c.pagamentos) return;
- PAY = true; if (c.hoje) TODAY = c.hoje; maxDays = c.diasMaxAgendamento || maxDays;
+ PAY = true; if (c.hoje) TODAY = c.hoje;
+ $('secureTxt').textContent = c.provedor === 'infinitepay' ? 'Pagamento seguro pela InfinitePay · Pix ou cartão em até 12x' : 'Pagamento seguro pelo Mercado Pago · Pix ou cartão';
+ if (c.provedor === 'mercadopago') { const sc = document.createElement('script'); sc.src = 'https://www.mercadopago.com/v2/security.js'; sc.setAttribute('view','checkout'); sc.async = true; document.body.appendChild(sc); } maxDays = c.diasMaxAgendamento || maxDays;
  if (c.entrega) ENT = c.entrega; if (c.horarios) HOR = c.horarios; if (typeof c.retirada === 'string') RETIRADA = c.retirada;
  if (c.combo) COMBO = c.combo;
  Object.entries(c.produtos || {}).forEach(([id,v]) => { const p = find(id); if (p) p.price = v.preco; });
@@ -753,20 +754,36 @@ fetch(API + 'config', {cache:'no-store'}).then(r => r.ok ? r.json() : null).then
  drawFlav(); setPayUI(); setDate($('fDate').value); render();
 }).catch(() => {});
 {
- const st = new URLSearchParams(location.search).get('pedido');
+ const qs = new URLSearchParams(location.search), st = qs.get('pedido');
  const T = {pago:['Pedido confirmado!','Recebemos seu pagamento. Já vamos separar seus doces e te chamamos no WhatsApp para combinar os detalhes.','Oba, voltar ao site'],
-  pendente:['Quase lá!','Seu pagamento está sendo processado. Assim que o Mercado Pago confirmar, seu pedido entra na fila e te chamamos no WhatsApp.','Entendi'],
-  falhou:['O pagamento não foi concluído','Nenhum valor foi cobrado e sua sacola continua salva. Isso costuma acontecer quando o banco ou o sistema antifraude barra a compra. Tente de novo com Pix, com outro cartão, ou conferindo os dados digitados. Se preferir, chame a gente no WhatsApp.','Tentar de novo']}[st];
- if (T) {
-  let last = ''; try { last = localStorage.getItem('mdg-last') || ''; } catch(e) {}
-  if (st !== 'falhou') { cart = {}; save(); }
-  $('resTitle').textContent = T[0]; $('resText').textContent = T[1]; $('resOk').textContent = T[2];
-  $('resMon').innerHTML = st==='falhou' ? mon(C.cream,C.choc,'#FFF4E0') : mon(C.pink,C.choc,C.cream);
-  $('resWa').href = `https://wa.me/${WHATS}?text=${encodeURIComponent('Olá, Mandrágora! Acabei de fazer o pedido ' + last)}`;
+  pendente:['Quase lá!','Seu pagamento está sendo processado. Assim que ele for confirmado, seu pedido entra na fila e te chamamos no WhatsApp.','Entendi'],
+  falhou:['O pagamento não foi concluído','Nenhum valor foi cobrado e sua sacola continua salva. Isso costuma acontecer quando o banco ou o sistema antifraude barra a compra. Tente de novo com Pix, com outro cartão, ou conferindo os dados digitados. Se preferir, chame a gente no WhatsApp.','Tentar de novo'],
+  confirmando:['Confirmando seu pagamento…','Só um instantinho, estamos conferindo com o banco.','Aguarde']};
+ let last = ''; try { last = localStorage.getItem('mdg-last') || ''; } catch(e) {}
+ const mostrar = k => {
+  const t = T[k];
+  if (k === 'pago' || k === 'pendente') { cart = {}; save(); render(); }
+  $('resTitle').textContent = t[0]; $('resText').textContent = t[1]; $('resOk').textContent = t[2];
+  $('resOk').disabled = k === 'confirmando';
+  $('resMon').innerHTML = k==='falhou' ? mon(C.cream,C.choc,'#FFF4E0') : mon(C.pink,C.choc,C.cream);
+  $('resWa').href = `https://wa.me/${WHATS}?text=${encodeURIComponent('Olá, Mandrágora! Acabei de fazer o pedido ' + (qs.get('order_nsu') || last))}`;
   $('result').hidden = false;
-  $('resOk').onclick = () => { $('result').hidden = true; if (st==='falhou') openD(true); };
-  try { history.replaceState(null, '', location.pathname); } catch(e) {}
- }
+  $('resOk').onclick = () => { $('result').hidden = true; if (k==='falhou') openD(true); };
+ };
+ if (st === 'retorno') {
+  // voltou da InfinitePay: confirma o pagamento direto no servidor
+  mostrar('confirmando');
+  const dados = {order_nsu: qs.get('order_nsu'), slug: qs.get('slug'), transaction_nsu: qs.get('transaction_nsu'), capture_method: qs.get('capture_method'), receipt_url: qs.get('receipt_url')};
+  let tentativas = 0;
+  const conferir = () => fetch(API + 'confirmar', {method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(dados)})
+   .then(r => r.json()).then(j => {
+    if (j.status === 'pago') mostrar('pago');
+    else if (++tentativas < 4) setTimeout(conferir, 2500);
+    else mostrar('pendente');
+   }).catch(() => mostrar('pendente'));
+  conferir();
+ } else if (T[st]) mostrar(st);
+ if (st) { try { history.replaceState(null, '', location.pathname); } catch(e) {} }
 }
 // motion: reveal on scroll, header shadow, eyes follow pointer
 document.documentElement.classList.add('js');
