@@ -32,8 +32,8 @@ export async function onRequestPost({ request, env }) {
   if (recebimento === 'entrega') {
     const e = b.endereco && typeof b.endereco === 'object' ? b.endereco : {};
     const rua = texto(e.rua, 120), numero = texto(e.numero, 20), bairro = texto(e.bairro, 80);
-    end = { rua, numero, bairro };
     const complemento = texto(e.complemento, 80), referencia = texto(e.referencia, 120);
+    end = { rua, numero, bairro, complemento };
     if (!rua || !numero || !bairro) return erro('Falta completar o endereço de entrega (rua, número e bairro).');
     endereco = `${rua}, ${numero}${complemento ? ` (${complemento})` : ''} · ${bairro} · ${ENTREGA.cidade}/${ENTREGA.uf}` +
       (referencia ? ` · Referência: ${referencia}` : '');
