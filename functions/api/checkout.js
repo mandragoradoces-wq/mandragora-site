@@ -33,9 +33,11 @@ export async function onRequestPost({ request, env }) {
     const e = b.endereco && typeof b.endereco === 'object' ? b.endereco : {};
     const rua = texto(e.rua, 120), numero = texto(e.numero, 20), bairro = texto(e.bairro, 80);
     const complemento = texto(e.complemento, 80), referencia = texto(e.referencia, 120);
-    end = { rua, numero, bairro, complemento };
+    const cep = String(e.cep || '').replace(/\D/g, '');
+    if (cep && cep.length !== 8) return erro('Confira o CEP do endereço.');
+    end = { rua, numero, bairro, complemento, cep };
     if (!rua || !numero || !bairro) return erro('Falta completar o endereço de entrega (rua, número e bairro).');
-    endereco = `${rua}, ${numero}${complemento ? ` (${complemento})` : ''} · ${bairro} · ${ENTREGA.cidade}/${ENTREGA.uf}` +
+    endereco = `${rua}, ${numero}${complemento ? ` (${complemento})` : ''} · ${bairro} · ${ENTREGA.cidade}/${ENTREGA.uf}${cep ? ` · CEP ${cep.slice(0, 5)}-${cep.slice(5)}` : ''}` +
       (referencia ? ` · Referência: ${referencia}` : '');
   }
 
