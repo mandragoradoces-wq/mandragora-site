@@ -4,7 +4,8 @@ import { PRODUTOS, COMBO, ENTREGA, RETIRADA, HORARIOS, LOJA, hoje } from '../../
 export const onRequestGet = ({ env }) =>
   Response.json(
     {
-      pagamentos: Boolean((env.INFINITEPAY_HANDLE || env.MP_ACCESS_TOKEN) && env.PEDIDOS),
+      pixel: String(env.META_PIXEL_ID || '').replace(/\D/g, '') || null,
+    pagamentos: Boolean((env.INFINITEPAY_HANDLE || env.MP_ACCESS_TOKEN) && env.PEDIDOS),
       provedor: env.INFINITEPAY_HANDLE ? 'infinitepay' : 'mercadopago',
       produtos: PRODUTOS,
       combo: COMBO,
